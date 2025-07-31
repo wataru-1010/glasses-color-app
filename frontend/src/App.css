@@ -1,0 +1,144 @@
+.App {
+  text-align: center;
+}
+
+.App-logo {
+  height: 40vmin;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .App-logo {
+    animation: App-logo-spin infinite 20s linear;
+  }
+}
+
+.App-header {
+  background-color: #282c34;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: calc(10px + 2vmin);
+  color: white;
+}
+
+.App-link {
+  color: #61dafb;
+}
+
+@keyframes App-logo-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* カメラページ用スタイル */
+.camera-setup {
+  max-width: 600px;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.instructions {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 20px;
+  margin: 20px 0;
+}
+
+.instructions ul {
+  list-style: none;
+  padding: 0;
+}
+
+.instructions li {
+  margin: 10px 0;
+  font-size: 16px;
+}
+
+.error-message {
+  background: rgba(255, 0, 0, 0.2);
+  border: 1px solid red;
+  border-radius: 5px;
+  padding: 10px;
+  margin: 10px 0;
+}
+
+.start-camera-button {
+  background: linear-gradient(45deg, #61dafb, #21aa58);
+  color: white;
+  border: none;
+  padding: 15px 30px;
+  font-size: 18px;
+  border-radius: 25px;
+  cursor: pointer;
+  margin: 20px;
+}
+
+.start-camera-button:hover {
+  transform: scale(1.05);
+  transition: transform 0.2s;
+}
+
+.camera-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+}
+
+.video-container {
+  position: relative;
+  width: 640px;
+  height: 480px;
+  border: 2px solid #61dafb;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.camera-status {
+  font-size: 18px;
+  font-weight: bold;
+}
+
+.camera-controls {
+  display: flex;
+  gap: 20px;
+}
+
+.back-button {
+  background: #666;
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 20px;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.capture-button {
+  background: linear-gradient(45deg, #ff6b6b, #ff8e53);
+  color: white;
+  border: none;
+  padding: 15px 30px;
+  border-radius: 25px;
+  cursor: pointer;
+  font-size: 18px;
+  font-weight: bold;
+}
+
+.capture-button:hover:not(:disabled) {
+  transform: scale(1.05);
+  transition: transform 0.2s;
+}
+
+.capture-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
