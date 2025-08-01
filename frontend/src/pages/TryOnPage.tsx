@@ -113,7 +113,6 @@ function TryOnPage() {
       const response = await fetch(apiUrl, {
         method: 'POST',
         body: formData,
-        mode: 'cors'
       });
 
       if (response.ok) {
