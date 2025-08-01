@@ -17,9 +17,15 @@ app = FastAPI(
 # CORS設定（フロントエンドとの通信用）
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://glasses-color-app.vercel.app", "https://glasses-color-app-git-main-wataru-1010s-projects.vercel.app", "https://glasses-color-n0q1w8171-wataru-1010s-projects.vercel.app", "*"],  # ← "*"に変更
+    allow_origins=[
+        "https://glasses-color-app.vercel.app",
+        "https://glasses-color-6qaeah2zx-wataru-1010s-projects.vercel.app",
+        "https://glasses-color-app-git-main-wataru-1010s-projects.vercel.app",
+        "https://*.vercel.app",
+        "*"
+    ],
     allow_credentials=True,
-    allow_methods=["*"],  # ← "*"に変更
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
