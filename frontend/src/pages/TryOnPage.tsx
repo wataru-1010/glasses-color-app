@@ -103,11 +103,11 @@ function TryOnPage() {
       const formData = new FormData();
       formData.append('file', imageBlob, 'image.jpg');
 
-      // Cloud Shell環境に対応したAPI URL
-      const apiUrl = window.location.hostname.includes('cloudshell.dev') 
-        ? `https://${window.location.hostname.replace('3001', '8001')}/detect-lens`
+      // Railway バックエンド API URL
+      const apiUrl = process.env.REACT_APP_API_URL 
+        ? `${process.env.REACT_APP_API_URL}/detect-lens`
         : 'http://localhost:8001/detect-lens';
-
+    
       console.log('🔗 API URL:', apiUrl);
 
       const response = await fetch(apiUrl, {
