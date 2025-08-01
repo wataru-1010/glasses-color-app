@@ -109,22 +109,32 @@ function TryOnPage() {
         : 'http://localhost:8001/detect-lens';
     
       console.log('🔗 API URL:', apiUrl);
+      console.log('📤 Sending request to Railway API...');
 
       const response = await fetch(apiUrl, {
         method: 'POST',
         body: formData,
       });
 
+      console.log('📥 Response status:', response.status);
+      console.log('📥 Response ok:', response.ok);
+
       if (response.ok) {
         const lensData = await response.json();
+        console.log('📊 API Response data:', lensData);
         
-        if (lensData.success && lensData.lenses) {
+        if (lensData.success && lensData.detection_result?.lenses) {
+          console.log('✅ レンズ検出成功:', lensData.detection_result.lenses);
           // 🎯 レンズ部分のみにカラー適用（高精度版）
-          applyColorToLenses(ctx, canvas, lensData.lenses, r, g, b, intensity);
-          console.log('✅ レンズ検出成功:', lensData);
+          applyColorToLenses(ctx, canvas, lensData.detection_result.lenses, r, g, b, intensity);
           return;
+        } else {
+          console.log('⚠️ レンズ検出失敗:', lensData);
         }
+      } else {
+        console.log('❌ HTTP Error:', response.status, response.statusText);
       }
+
     } catch (error) {
       console.log('🔄 レンズ検出API接続失敗、フォールバック実行:', error);
     }
