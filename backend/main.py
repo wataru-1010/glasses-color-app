@@ -13,21 +13,45 @@ app = FastAPI(
     version="1.0.0",
     description="高精度軽量版メガネレンズ検出API - OpenCV + scikit-image統合実装"
 )
+from fastapi.middleware.cors import CORSMiddleware
 
-# CORS設定（フロントエンドとの通信用）
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "https://glasses-color-app.vercel.app",
-        "https://glasses-color-6qaeah2zx-wataru-1010s-projects.vercel.app",
+        "https://glasses-color-6qaeah2zx-wataru-1010s-projects.vercel.app", 
         "https://glasses-color-app-git-main-wataru-1010s-projects.vercel.app",
         "https://*.vercel.app",
+        "https://vercel.app",
         "*"
     ],
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["*"],
+    allow_credentials=False,  # 変更: False
+    allow_methods=["GET", "POST", "OPTIONS"],  # 明示的に指定
+    allow_headers=[
+        "accept",
+        "accept-encoding", 
+        "authorization",
+        "content-type",
+        "dnt",
+        "origin",
+        "user-agent",
+        "x-csrftoken",
+        "x-requested-with",
+        "*"
+    ],
+    expose_headers=["*"],
+    max_age=3600
 )
+@app.options("/detect-lens")
+async def detect_lens_options():
+    return {"status": "ok"}
+
+@app.options("/apply-color") 
+async def apply_color_options():
+    return {"status": "ok"}
+
+# CORS設定（フロントエンドとの通信用）
+
 
 # グローバル検出器インスタンス
 lens_detector = None
