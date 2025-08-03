@@ -123,12 +123,16 @@ function TryOnPage() {
         
         if (result.success && result.detection_result?.lenses) {
           console.log('✅ レンズ検出成功:', result.detection_result.lenses);
+          console.log('🔍 詳細データ:', JSON.stringify(result.detection_result.lenses, null, 2));
+          console.log('📏 Canvas size:', canvas.width, 'x', canvas.height);
+          
           // 🎯 レンズ部分のみにカラー適用（高精度版）
           applyColorToLenses(ctx, canvas, result.detection_result.lenses, r, g, b, intensity);
           return;
         } else {
           console.log('⚠️ レンズ検出失敗:', result);
         }
+
       } else {
         const errorText = await response.text();
         console.log('❌ Direct API Error:', response.status, errorText);
