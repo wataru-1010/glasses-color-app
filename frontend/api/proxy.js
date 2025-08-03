@@ -8,78 +8,82 @@ export default async function handler(req, res) {
     'Access-Control-Allow-Credentials': 'false',
     'Access-Control-Max-Age': '3600'
   };
-
+ 
   Object.keys(corsHeaders).forEach(key => {
     res.setHeader(key, corsHeaders[key]);
   });
-
+ 
   if (req.method === 'OPTIONS') {
     return res.status(200).json({ message: 'Preflight OK' });
   }
-
+ 
   try {
+    console.log('📋 Request body:', req.body);
+    
     const RENDER_API_URL = 'https://glasses-color-app.onrender.com';
     const targetPath = req.query.path || 'detect-lens';
     const targetUrl = `${RENDER_API_URL}/${targetPath}`;
     
     console.log('🎯 Proxying to:', targetUrl);
-
-    // FormData形式でのプロキシ転送
-    const formData = new FormData();
-    
-    // リクエストボディからBase64画像を取得
+ 
+    // 簡単なテスト: まずは元のAPI呼び出しを試す
     if (req.method === 'POST' && req.body) {
-      const requestData = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+      console.log('📦 Processing request body...');
       
-      if (requestData.image) {
-        // Base64をBlobに変換してFormDataに追加
-        const base64Data = requestData.image;
-        const byteCharacters = atob(base64Data);
-        const byteNumbers = new Array(byteCharacters.length);
-        for (let i = 0; i < byteCharacters.length; i++) {
-          byteNumbers[i] = byteCharacters.charCodeAt(i);
-        }
-        const byteArray = new Uint8Array(byteNumbers);
-        const blob = new Blob([byteArray], { type: 'image/jpeg' });
-        
-        formData.append('file', blob, 'image.jpg');
-        console.log('📎 FormData created with image blob');
+      const requestData = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+      console.log('📋 Parsed data keys:', Object.keys(requestData));
+      
+      if (!requestData.image) {
+        throw new Error('No image data found in request');
       }
+      
+      console.log('🖼️ Image data length:', requestData.image.length);
+      
+      // 一時的に、JSONでそのまま送信してみる（デバッグ用）
+      const apiResponse = await fetch(targetUrl, {
+        method: req.method,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          image: requestData.image,
+          format: 'base64'
+        })
+      });
+ 
+      console.log('📥 API Response status:', apiResponse.status);
+      
+      const responseText = await apiResponse.text();
+      console.log('📄 Response text:', responseText.substring(0, 200));
+      
+      let responseData;
+      try {
+        responseData = JSON.parse(responseText);
+      } catch (e) {
+        responseData = { message: responseText, status: apiResponse.status };
+      }
+ 
+      return res.status(apiResponse.status).json({
+        success: apiResponse.ok,
+        data: responseData,
+        debug: {
+          imageLength: requestData.image.length,
+          targetUrl,
+          responseStatus: apiResponse.status
+        }
+      });
     }
-
-    // RenderAPIにFormDataで送信
-    const apiResponse = await fetch(targetUrl, {
-      method: req.method,
-      body: formData
-    });
-
-    console.log('📥 API Response status:', apiResponse.status);
-
-    let responseData;
-    const contentType = apiResponse.headers.get('content-type');
-    
-    if (contentType?.includes('application/json')) {
-      responseData = await apiResponse.json();
-    } else {
-      const textData = await apiResponse.text();
-      responseData = { 
-        message: textData,
-        status: apiResponse.status 
-      };
-    }
-
-    return res.status(apiResponse.status).json({
-      success: apiResponse.ok,
-      data: responseData
-    });
-
+ 
+    return res.status(400).json({ error: 'Invalid request' });
+ 
   } catch (error) {
     console.error('❌ Proxy error:', error);
     
     return res.status(500).json({
       success: false,
       error: 'Proxy request failed',
-      details: error.message
+      details: error.message,
+      stack: error.stack
     });
   }
-}
+ }
