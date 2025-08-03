@@ -4,7 +4,7 @@ export default async function handler(req, res) {
   const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, Accept, Origin',
+    'Access-Control-Allow-Headers': '*',
     'Access-Control-Allow-Credentials': 'false',
     'Access-Control-Max-Age': '3600'
   };
@@ -24,24 +24,41 @@ export default async function handler(req, res) {
     
     console.log('🎯 Proxying to:', targetUrl);
 
-    // シンプルにそのまま転送
+    // Vercel Functions用のFormData処理
+    const headers = {};
+    
+    // Content-Typeヘッダーを除去（FormDataが自動設定）
+    Object.entries(req.headers || {}).forEach(([key, value]) => {
+      if (!key.toLowerCase().includes('content-type') && 
+          !key.toLowerCase().includes('content-length') &&
+          !key.toLowerCase().includes('host') &&
+          !key.toLowerCase().includes('origin')) {
+        headers[key] = value;
+      }
+    });
+
+    console.log('📦 Forwarding request...');
+
+    // リクエストをそのまま転送
     const apiResponse = await fetch(targetUrl, {
       method: req.method,
-      headers: {
-        // Content-Typeを除去（FormDataは自動設定される）
-        ...Object.fromEntries(
-          Object.entries(req.headers || {}).filter(
-            ([key]) => !key.toLowerCase().includes('content-type') && 
-                      !key.toLowerCase().includes('content-length') &&
-                      !key.toLowerCase().includes('host')
-          )
-        )
-      },
+      headers,
       body: req.method === 'POST' ? req.body : undefined
     });
 
     console.log('📥 API Response status:', apiResponse.status);
     
+    if (!apiResponse.ok) {
+      const errorText = await apiResponse.text();
+      console.log('❌ API Error:', errorText);
+      
+      return res.status(apiResponse.status).json({
+        success: false,
+        error: `API Error: ${apiResponse.status}`,
+        details: errorText
+      });
+    }
+
     const responseText = await apiResponse.text();
     console.log('📄 Response preview:', responseText.substring(0, 200));
     
@@ -55,8 +72,8 @@ export default async function handler(req, res) {
       };
     }
 
-    return res.status(apiResponse.status).json({
-      success: apiResponse.ok,
+    return res.status(200).json({
+      success: true,
       data: responseData
     });
 
@@ -65,7 +82,7 @@ export default async function handler(req, res) {
     
     return res.status(500).json({
       success: false,
-      error: 'Proxy request failed',
+      error: 'Internal proxy error',
       details: error.message
     });
   }
