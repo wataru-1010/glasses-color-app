@@ -1,5 +1,5 @@
 export default async function handler(req, res) {
-  console.log('Proxy request:', req.method, req.url);
+  console.log('🔧 Proxy request:', req.method, req.url);
   
   const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -21,20 +21,39 @@ export default async function handler(req, res) {
     const RENDER_API_URL = 'https://glasses-color-app.onrender.com';
     const targetPath = req.query.path || 'detect-lens';
     const targetUrl = `${RENDER_API_URL}/${targetPath}`;
+    
+    console.log('🎯 Proxying to:', targetUrl);
 
-    let requestBody = null;
+    // FormData形式でのプロキシ転送
+    const formData = new FormData();
+    
+    // リクエストボディからBase64画像を取得
     if (req.method === 'POST' && req.body) {
-      requestBody = JSON.stringify(req.body);
+      const requestData = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+      
+      if (requestData.image) {
+        // Base64をBlobに変換してFormDataに追加
+        const base64Data = requestData.image;
+        const byteCharacters = atob(base64Data);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+          byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        const blob = new Blob([byteArray], { type: 'image/jpeg' });
+        
+        formData.append('file', blob, 'image.jpg');
+        console.log('📎 FormData created with image blob');
+      }
     }
 
+    // RenderAPIにFormDataで送信
     const apiResponse = await fetch(targetUrl, {
       method: req.method,
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
-      },
-      body: requestBody
+      body: formData
     });
+
+    console.log('📥 API Response status:', apiResponse.status);
 
     let responseData;
     const contentType = apiResponse.headers.get('content-type');
@@ -42,8 +61,9 @@ export default async function handler(req, res) {
     if (contentType?.includes('application/json')) {
       responseData = await apiResponse.json();
     } else {
+      const textData = await apiResponse.text();
       responseData = { 
-        message: await apiResponse.text(),
+        message: textData,
         status: apiResponse.status 
       };
     }
@@ -54,6 +74,8 @@ export default async function handler(req, res) {
     });
 
   } catch (error) {
+    console.error('❌ Proxy error:', error);
+    
     return res.status(500).json({
       success: false,
       error: 'Proxy request failed',
