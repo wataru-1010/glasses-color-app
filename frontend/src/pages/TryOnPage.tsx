@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { proxyApiCall } from '../utils/apiProxy';
 
 // カラーデータの定義
 const colorData = {
@@ -104,24 +105,26 @@ function TryOnPage() {
       formData.append('file', imageBlob, 'image.jpg');
 
       // Railway バックエンド API URL
-      const apiUrl = process.env.REACT_APP_API_URL 
-        ? `${process.env.REACT_APP_API_URL}/detect-lens`
-        : 'http://localhost:8001/detect-lens';
-    
-      console.log('🔗 API URL:', apiUrl);
-      console.log('📤 Sending request to Railway API...');
+      console.log('🔗 Using Proxy API for CORS bypass');
+      console.log('📤 Sending request via Vercel Proxy...');
 
-      const response = await fetch(apiUrl, {
+      // FormDataをJSONに変換
+      const imageFile = formData.get('file') as File;
+      const imageBase64 = await fileToBase64(imageFile);
+      
+      const response = await proxyApiCall('detect-lens', {
         method: 'POST',
-        body: formData,
+        body: JSON.stringify({
+          image: imageBase64,
+          format: 'base64'
+        })
       });
 
       console.log('📥 Response status:', response.status);
       console.log('📥 Response ok:', response.ok);
 
-      if (response.ok) {
-        const lensData = await response.json();
-        console.log('📊 API Response data:', lensData);
+      if (response.success && response.data) {
+        const lensData = response.data;
         
         if (lensData.success && lensData.detection_result?.lenses) {
           console.log('✅ レンズ検出成功:', lensData.detection_result.lenses);
@@ -132,8 +135,9 @@ function TryOnPage() {
           console.log('⚠️ レンズ検出失敗:', lensData);
         }
       } else {
-        console.log('❌ HTTP Error:', response.status, response.statusText);
+        console.log('❌ Proxy Error:', response.error);
       }
+
 
     } catch (error) {
       console.log('🔄 レンズ検出API接続失敗、フォールバック実行:', error);
@@ -651,5 +655,20 @@ function TryOnPage() {
     </div>
   );
 }
+
+// Base64変換用のヘルパー関数
+const fileToBase64 = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => {
+      const result = reader.result as string;
+      // データURLプレフィックスを除去してBase64文字列のみを返す
+      const base64 = result.split(',')[1];
+      resolve(base64);
+    };
+    reader.onerror = error => reject(error);
+  });
+};
 
 export default TryOnPage;
