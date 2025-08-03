@@ -105,42 +105,34 @@ function TryOnPage() {
       formData.append('file', imageBlob, 'image.jpg');
 
       // Railway バックエンド API URL
-      console.log('🔗 Using Proxy API for CORS bypass');
-      console.log('📤 Sending request via Vercel Proxy...');
-
-      // FormDataをそのままプロキシに送信
-      const response = await fetch('/api/proxy?' + new URLSearchParams({ path: 'detect-lens' }), {
+      console.log('🧪 Testing direct API call...');
+      console.log('📤 Sending direct request to Render API...');
+      
+      // 直接API呼び出しテスト
+      const response = await fetch('https://glasses-color-app.onrender.com/detect-lens', {
         method: 'POST',
-        body: formData  // FormDataをそのまま送信
+        body: formData
       });
 
-      console.log('📥 Proxy response status:', response.status);
+      console.log('📥 Direct API response status:', response.status);
+      console.log('📥 Direct API response ok:', response.ok);
       
-      if (!response.ok) {
-        throw new Error(`Proxy request failed: ${response.status}`);
-      }
-
-      const result = await response.json();
-      console.log('✅ Proxy success:', result);
-
-      console.log('📥 Response status:', response.status);
-      console.log('📥 Response ok:', response.ok);
-
-      if (response.success && response.data) {
-        const lensData = response.data;
+      if (response.ok) {
+        const result = await response.json();
+        console.log('✅ Direct API success:', result);
         
-        if (lensData.success && lensData.detection_result?.lenses) {
-          console.log('✅ レンズ検出成功:', lensData.detection_result.lenses);
+        if (result.success && result.detection_result?.lenses) {
+          console.log('✅ レンズ検出成功:', result.detection_result.lenses);
           // 🎯 レンズ部分のみにカラー適用（高精度版）
-          applyColorToLenses(ctx, canvas, lensData.detection_result.lenses, r, g, b, intensity);
+          applyColorToLenses(ctx, canvas, result.detection_result.lenses, r, g, b, intensity);
           return;
         } else {
-          console.log('⚠️ レンズ検出失敗:', lensData);
+          console.log('⚠️ レンズ検出失敗:', result);
         }
       } else {
-        console.log('❌ Proxy Error:', response.error);
+        const errorText = await response.text();
+        console.log('❌ Direct API Error:', response.status, errorText);
       }
-
 
     } catch (error) {
       console.log('🔄 レンズ検出API接続失敗、フォールバック実行:', error);
