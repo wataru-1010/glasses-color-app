@@ -120,7 +120,7 @@ function TryOnPage() {
       if (response.ok) {
         const result = await response.json();
         console.log('✅ Direct API success:', result);
-        
+
         if (result.success && result.detection_result?.lenses) {
           console.log('✅ レンズ検出成功:', result.detection_result.lenses);
           console.log('🔍 詳細データ:', JSON.stringify(result.detection_result.lenses, null, 2));
@@ -160,9 +160,16 @@ function TryOnPage() {
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const data = imageData.data;
     
-    // スケール計算
-    const scaleX = canvas.width / 640;  // APIは640x480ベース
+    console.log('🎯 レンズ適用開始');
+    console.log('📏 実際のCanvas:', canvas.width, 'x', canvas.height);
+    console.log('🔍 左レンズ座標:', lenses.left);
+    console.log('🔍 右レンズ座標:', lenses.right);
+    
+    // スケール計算（640x480の場合は1:1、それ以外は変換）
+    const scaleX = canvas.width / 640;
     const scaleY = canvas.height / 480;
+    
+    console.log('📐 スケール:', scaleX, scaleY);
     
     // 左右レンズの領域を計算
     const leftLens = {
@@ -178,6 +185,9 @@ function TryOnPage() {
       width: Math.round(lenses.right.width * scaleX),
       height: Math.round(lenses.right.height * scaleY)
     };
+
+    console.log('👓 計算後 左レンズ:', leftLens);
+    console.log('👓 計算後 右レンズ:', rightLens);
 
     // 楕円形レンズマスクでカラー適用
     for (let y = 0; y < canvas.height; y++) {
@@ -210,6 +220,7 @@ function TryOnPage() {
     }
 
     ctx.putImageData(imageData, 0, 0);
+    console.log('✅ レンズカラー適用完了');
   };
 
   // 楕円内判定関数
