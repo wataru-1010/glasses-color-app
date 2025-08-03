@@ -108,17 +108,20 @@ function TryOnPage() {
       console.log('🔗 Using Proxy API for CORS bypass');
       console.log('📤 Sending request via Vercel Proxy...');
 
-      // FormDataをJSONに変換
-      const imageFile = formData.get('file') as File;
-      const imageBase64 = await fileToBase64(imageFile);
-      
-      const response = await proxyApiCall('detect-lens', {
+      // FormDataをそのままプロキシに送信
+      const response = await fetch('/api/proxy?' + new URLSearchParams({ path: 'detect-lens' }), {
         method: 'POST',
-        body: JSON.stringify({
-          image: imageBase64,
-          format: 'base64'
-        })
+        body: formData  // FormDataをそのまま送信
       });
+
+      console.log('📥 Proxy response status:', response.status);
+      
+      if (!response.ok) {
+        throw new Error(`Proxy request failed: ${response.status}`);
+      }
+
+      const result = await response.json();
+      console.log('✅ Proxy success:', result);
 
       console.log('📥 Response status:', response.status);
       console.log('📥 Response ok:', response.ok);

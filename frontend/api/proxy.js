@@ -24,70 +24,41 @@ export default async function handler(req, res) {
     
     console.log('🎯 Proxying to:', targetUrl);
 
-    if (req.method === 'POST' && req.body) {
-      const requestData = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-      
-      if (!requestData.image) {
-        throw new Error('No image data found in request');
-      }
-      
-      console.log('🖼️ Converting Base64 to Buffer...');
-      
-      // Base64をBufferに変換
-      const base64Data = requestData.image;
-      const buffer = Buffer.from(base64Data, 'base64');
-      
-      console.log('📦 Buffer size:', buffer.length);
-      
-      // マルチパート形式のボディを手動で構築
-      const boundary = '----formdata-proxy-' + Math.random().toString(16);
-      const CRLF = '\r\n';
-      
-      const multipartBody = [
-        `--${boundary}`,
-        'Content-Disposition: form-data; name="file"; filename="image.jpg"',
-        'Content-Type: image/jpeg',
-        '',
-        buffer.toString('binary'),
-        `--${boundary}--`,
-        ''
-      ].join(CRLF);
-      
-      console.log('📨 Sending multipart request...');
-      
-      // RenderAPIにマルチパート形式で送信
-      const apiResponse = await fetch(targetUrl, {
-        method: req.method,
-        headers: {
-          'Content-Type': `multipart/form-data; boundary=${boundary}`,
-          'Content-Length': Buffer.byteLength(multipartBody)
-        },
-        body: multipartBody
-      });
+    // シンプルにそのまま転送
+    const apiResponse = await fetch(targetUrl, {
+      method: req.method,
+      headers: {
+        // Content-Typeを除去（FormDataは自動設定される）
+        ...Object.fromEntries(
+          Object.entries(req.headers || {}).filter(
+            ([key]) => !key.toLowerCase().includes('content-type') && 
+                      !key.toLowerCase().includes('content-length') &&
+                      !key.toLowerCase().includes('host')
+          )
+        )
+      },
+      body: req.method === 'POST' ? req.body : undefined
+    });
 
-      console.log('📥 API Response status:', apiResponse.status);
-      
-      const responseText = await apiResponse.text();
-      console.log('📄 Response preview:', responseText.substring(0, 200));
-      
-      let responseData;
-      try {
-        responseData = JSON.parse(responseText);
-      } catch (e) {
-        responseData = { 
-          message: responseText, 
-          status: apiResponse.status,
-          error: 'Failed to parse JSON response'
-        };
-      }
-
-      return res.status(apiResponse.status).json({
-        success: apiResponse.ok,
-        data: responseData
-      });
+    console.log('📥 API Response status:', apiResponse.status);
+    
+    const responseText = await apiResponse.text();
+    console.log('📄 Response preview:', responseText.substring(0, 200));
+    
+    let responseData;
+    try {
+      responseData = JSON.parse(responseText);
+    } catch (e) {
+      responseData = { 
+        message: responseText, 
+        status: apiResponse.status 
+      };
     }
 
-    return res.status(400).json({ error: 'Invalid request method or missing body' });
+    return res.status(apiResponse.status).json({
+      success: apiResponse.ok,
+      data: responseData
+    });
 
   } catch (error) {
     console.error('❌ Proxy error:', error);
