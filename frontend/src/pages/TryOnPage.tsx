@@ -104,42 +104,68 @@ function TryOnPage() {
       const formData = new FormData();
       formData.append('file', imageBlob, 'image.jpg');
 
-      // Railway バックエンド API URL
-      console.log('🔗 Using Proxy API for CORS bypass');
-      console.log('📤 Sending request via Vercel Proxy...');
+      // 直接API呼び出し（CORSが正しく設定されているため）
+      console.log('🎯 Direct API call to Render');
+      console.log('📤 Sending FormData directly...');
 
-      // FormDataをそのままプロキシに送信
-      const response = await fetch('/api/proxy?' + new URLSearchParams({ path: 'detect-lens' }), {
+      // 直接Render APIに送信
+      const response = await fetch('https://glasses-color-app.onrender.com/detect-lens', {
         method: 'POST',
         body: formData  // FormDataをそのまま送信
       });
 
-      console.log('📥 Proxy response status:', response.status);
-      
+      console.log('📥 Direct API response status:', response.status);
+      console.log('📥 Direct API response ok:', response.ok);
+
       if (!response.ok) {
-        throw new Error(`Proxy request failed: ${response.status}`);
+        const errorText = await response.text();
+        console.log('❌ Direct API Error:', response.status, errorText);
+        throw new Error(`API Error: ${response.status}`);
       }
 
       const result = await response.json();
-      console.log('✅ Proxy success:', result);
-      
-      if (result.success && result.data) {
-        const lensData = result.data;
-        
-        if (lensData.success && lensData.detection_result?.lenses) {
-          console.log('✅ レンズ検出成功:', lensData.detection_result.lenses);
-          console.log('🔍 詳細データ:', JSON.stringify(lensData.detection_result.lenses, null, 2));
-          console.log('📏 Canvas size:', canvas.width, 'x', canvas.height);
+      console.log('✅ Direct API success:', result);
+
+      if (result.success && result.detection_result?.lenses) {
+        console.log('✅ レンズ検出成功:', result.detection_result.lenses);
+        console.log('🔍 詳細データ:', JSON.stringify(result.detection_result.lenses, null, 2));
+        console.log('📏 Canvas size:', canvas.width, 'x', canvas.height);
+        console.log('📏 Original image size:', result.image_info?.size);
+
+        // 🎯 レンズ部分のみにカラー適用（高精度版）
+        // 座標変換: APIの画像サイズ → Canvas サイズ
+        const apiImageSize = result.image_info?.size;
+        if (apiImageSize) {
+          console.log('🔄 座標変換実行:', `${apiImageSize.width}x${apiImageSize.height} → ${canvas.width}x${canvas.height}`);
           
-          // 🎯 レンズ部分のみにカラー適用（高精度版）
-          applyColorToLenses(ctx, canvas, lensData.detection_result.lenses, r, g, b, intensity);
-          return;
+          const scaleX = canvas.width / apiImageSize.width;
+          const scaleY = canvas.height / apiImageSize.height;
+          
+          // スケール後の座標を計算
+          const scaledLenses = {
+            left: {
+              x: result.detection_result.lenses.left.x * scaleX,
+              y: result.detection_result.lenses.left.y * scaleY,
+              width: result.detection_result.lenses.left.width * scaleX,
+              height: result.detection_result.lenses.left.height * scaleY
+            },
+            right: {
+              x: result.detection_result.lenses.right.x * scaleX,
+              y: result.detection_result.lenses.right.y * scaleY,
+              width: result.detection_result.lenses.right.width * scaleX,
+              height: result.detection_result.lenses.right.height * scaleY
+            }
+          };
+          
+          console.log('📐 変換後座標:', scaledLenses);
+          applyColorToLenses(ctx, canvas, scaledLenses, r, g, b, intensity);
         } else {
-          console.log('⚠️ レンズ検出失敗:', lensData);
+          applyColorToLenses(ctx, canvas, result.detection_result.lenses, r, g, b, intensity);
         }
+        return;
       } else {
-        console.log('❌ Proxy Error:', result.error);
-      }     
+        console.log('⚠️ レンズ検出失敗:', result);
+      }
 
     } catch (error) {
       console.log('🔄 レンズ検出API接続失敗、フォールバック実行:', error);
@@ -168,29 +194,24 @@ function TryOnPage() {
     console.log('🔍 左レンズ座標:', lenses.left);
     console.log('🔍 右レンズ座標:', lenses.right);
     
-    // スケール計算（640x480の場合は1:1、それ以外は変換）
-    const scaleX = canvas.width / 640;
-    const scaleY = canvas.height / 480;
-    
-    console.log('📐 スケール:', scaleX, scaleY);
-    
-    // 左右レンズの領域を計算
+    // 渡された座標はすでにスケール済みなのでそのまま使用
     const leftLens = {
-      x: Math.round(lenses.left.x * scaleX),
-      y: Math.round(lenses.left.y * scaleY),
-      width: Math.round(lenses.left.width * scaleX),
-      height: Math.round(lenses.left.height * scaleY)
-    };
-    
-    const rightLens = {
-      x: Math.round(lenses.right.x * scaleX),
-      y: Math.round(lenses.right.y * scaleY),
-      width: Math.round(lenses.right.width * scaleX),
-      height: Math.round(lenses.right.height * scaleY)
+      x: Math.round(lenses.left.x),
+      y: Math.round(lenses.left.y),
+      width: Math.round(lenses.left.width),
+      height: Math.round(lenses.left.height)
     };
 
-    console.log('👓 計算後 左レンズ:', leftLens);
-    console.log('👓 計算後 右レンズ:', rightLens);
+    const rightLens = {
+      x: Math.round(lenses.right.x),
+      y: Math.round(lenses.right.y),
+      width: Math.round(lenses.right.width),
+      height: Math.round(lenses.right.height)
+    };
+
+    console.log('👓 適用座標 左レンズ:', leftLens);
+    console.log('👓 適用座標 右レンズ:', rightLens);
+
 
     // 楕円形レンズマスクでカラー適用
     for (let y = 0; y < canvas.height; y++) {
