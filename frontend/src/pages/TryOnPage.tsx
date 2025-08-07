@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { proxyApiCall } from '../utils/apiProxy';
+import { useFaceMesh } from '../hooks/useFaceMesh';
 
 // カラーデータの定義
 const colorData = {
@@ -48,6 +48,9 @@ function TryOnPage() {
   const navigate = useNavigate();
   const location = useLocation();
   
+  // MediaPipe Hook追加
+  const { isInitialized, isLoading, error, detectLenses } = useFaceMesh();
+
   // States
   const [activeTab, setActiveTab] = useState<'fullColor' | 'gradation' | 'double'>('fullColor');
   const [selectedColor, setSelectedColor] = useState(0);
@@ -96,93 +99,65 @@ function TryOnPage() {
     const b = parseInt(hex.substr(4, 2), 16);
 
     try {
-      // バックエンドAPIでレンズ検出を試行
-      const imageBlob = await new Promise<Blob>((resolve) => {
-        canvas.toBlob((blob) => resolve(blob!), 'image/jpeg', 0.9);
-      });
+    console.log('🎯 MediaPipe Face Mesh で静止画検出開始');
+    
+    // MediaPipe初期化チェック
+    if (!isInitialized) {
+      console.log('⚠️ MediaPipe未初期化 - フォールバックを実行');
+      throw new Error('MediaPipe未初期化');
+    }
 
-      const formData = new FormData();
-      formData.append('file', imageBlob, 'image.jpg');
+    // 静止画用のVideo要素を一時作成
+    const tempVideo = document.createElement('video');
+    tempVideo.width = canvas.width;
+    tempVideo.height = canvas.height;
+    
+    // CanvasからVideoに変換（MediaPipe用）
+    const stream = canvas.captureStream();
+    tempVideo.srcObject = stream;
+    tempVideo.play();
+    
+    // Videoがreadyになるまで待機
+    await new Promise((resolve) => {
+      tempVideo.onloadeddata = resolve;
+    });
 
-      // 直接API呼び出し（CORSが正しく設定されているため）
-      console.log('🎯 Direct API call to Render');
-      console.log('📤 Sending FormData directly...');
+    // MediaPipeでレンズ位置検出
+    const detectionResult = await detectLenses(tempVideo, canvas.width, canvas.height);
+    
+    // Video要素をクリーンアップ
+    tempVideo.srcObject = null;
+    
+    if (!detectionResult) {
+      console.log('⚠️ MediaPipe検出失敗 - フォールバックを実行');
+      throw new Error('レンズ検出失敗');
+    }
 
-      // 直接Render APIに送信
-      const response = await fetch('https://glasses-color-app.onrender.com/detect-lens', {
-        method: 'POST',
-        body: formData  // FormDataをそのまま送信
-      });
+    console.log('✅ MediaPipe静止画検出成功:', detectionResult);
+    console.log('📏 IPD:', detectionResult.ipd.toFixed(1) + 'px');
+    console.log('🎯 信頼度:', (detectionResult.confidence * 100).toFixed(1) + '%');
 
-      console.log('📥 Direct API response status:', response.status);
-      console.log('📥 Direct API response ok:', response.ok);
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.log('❌ Direct API Error:', response.status, errorText);
-        throw new Error(`API Error: ${response.status}`);
-      }
-
-      const result = await response.json();
-      console.log('✅ Direct API success:', result);
-
-      if (result.success && result.detection_result?.lenses) {
-        console.log('✅ レンズ検出成功:', result.detection_result.lenses);
-        console.log('🔍 詳細データ:', JSON.stringify(result.detection_result.lenses, null, 2));
-        console.log('📏 Canvas size:', canvas.width, 'x', canvas.height);
-        console.log('📏 Original image size:', result.image_info?.size);
-
-        // 🎯 レンズ部分のみにカラー適用（高精度版）
-        // 座標変換: APIの画像サイズ → Canvas サイズ
-        const apiImageSize = result.image_info?.size;
-        if (apiImageSize) {
-          console.log('🔄 座標変換実行:', `${apiImageSize.width}x${apiImageSize.height} → ${canvas.width}x${canvas.height}`);
-          
-          const scaleX = canvas.width / apiImageSize.width;
-          const scaleY = canvas.height / apiImageSize.height;
-          
-          // スケール後の座標を計算
-          const scaledLenses = {
-            left: {
-              x: result.detection_result.lenses.left.x * scaleX,
-              y: result.detection_result.lenses.left.y * scaleY,
-              width: result.detection_result.lenses.left.width * scaleX,
-              height: result.detection_result.lenses.left.height * scaleY
-            },
-            right: {
-              x: result.detection_result.lenses.right.x * scaleX,
-              y: result.detection_result.lenses.right.y * scaleY,
-              width: result.detection_result.lenses.right.width * scaleX,
-              height: result.detection_result.lenses.right.height * scaleY
-            }
-          };
-          
-          console.log('📐 変換後座標:', scaledLenses);
-          applyColorToLenses(ctx, canvas, scaledLenses, r, g, b, intensity);
-        } else {
-          applyColorToLenses(ctx, canvas, result.detection_result.lenses, r, g, b, intensity);
-        }
-        return;
-      } else {
-        console.log('⚠️ レンズ検出失敗:', result);
-      }
+    // 検出されたレンズ領域にカラー適用
+    applyColorToLenses(ctx, canvas, detectionResult, r, g, b, intensity);
+    return;
 
     } catch (error) {
-      console.log('🔄 レンズ検出API接続失敗、フォールバック実行:', error);
-    }
+        console.log('🔄 MediaPipe検出失敗、フォールバック実行:', error);
+        
+        // フォールバック: 従来の顔全体適用（UIは変わらず動作継続）
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const data = imageData.data;
 
-    // フォールバック: 従来の顔全体適用（UIは変わらず動作継続）
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const data = imageData.data;
+        for (let i = 0; i < data.length; i += 4) {
+          data[i] = Math.min(255, data[i] * (1 - intensity) + r * intensity);
+          data[i + 1] = Math.min(255, data[i + 1] * (1 - intensity) + g * intensity);
+          data[i + 2] = Math.min(255, data[i + 2] * (1 - intensity) + b * intensity);
+        }
 
-    for (let i = 0; i < data.length; i += 4) {
-      data[i] = Math.min(255, data[i] * (1 - intensity) + r * intensity);
-      data[i + 1] = Math.min(255, data[i + 1] * (1 - intensity) + g * intensity);
-      data[i + 2] = Math.min(255, data[i + 2] * (1 - intensity) + b * intensity);
-    }
+        ctx.putImageData(imageData, 0, 0);
+      }
+    }, [selectedColor, selectedIntensity, activeTab, isInitialized, detectLenses]);
 
-    ctx.putImageData(imageData, 0, 0);
-  }, [selectedColor, selectedIntensity, activeTab]);
 
   // レンズ領域のみにカラーを適用する関数
   const applyColorToLenses = (ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, lenses: any, r: number, g: number, b: number, intensity: number) => {
