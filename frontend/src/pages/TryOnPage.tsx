@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useFaceMesh } from '../hooks/useFaceMesh';
 
 // カラーデータの定義
 const colorData = {
@@ -48,9 +47,6 @@ function TryOnPage() {
   const navigate = useNavigate();
   const location = useLocation();
   
-  // MediaPipe Hook追加
-  const { isInitialized, isLoading, error, detectLenses } = useFaceMesh();
-
   // States
   const [activeTab, setActiveTab] = useState<'fullColor' | 'gradation' | 'double'>('fullColor');
   const [selectedColor, setSelectedColor] = useState(0);
@@ -99,64 +95,117 @@ function TryOnPage() {
     const b = parseInt(hex.substr(4, 2), 16);
 
     try {
-    console.log('🎯 MediaPipe Face Mesh で静止画検出開始');
-    
-    // MediaPipe初期化チェック
-    if (!isInitialized) {
-      console.log('⚠️ MediaPipe未初期化 - フォールバックを実行');
-      throw new Error('MediaPipe未初期化');
-    }
+      console.log('🎯 Direct API call to Render (30min Challenge)');
+      
+      // Canvas画像をBlobに変換
+      const blob = await new Promise<Blob>((resolve) => {
+        canvas.toBlob((blob) => {
+          if (blob) resolve(blob);
+        }, 'image/jpeg', 0.8);
+      });
 
-    // 静止画用のVideo要素を一時作成
-    const tempVideo = document.createElement('video');
-    tempVideo.width = canvas.width;
-    tempVideo.height = canvas.height;
-    
-    // CanvasからVideoに変換（MediaPipe用）
-    const stream = canvas.captureStream();
-    tempVideo.srcObject = stream;
-    tempVideo.play();
-    
-    // Videoがreadyになるまで待機
-    await new Promise((resolve) => {
-      tempVideo.onloadeddata = resolve;
-    });
+      if (!blob) throw new Error('画像変換失敗');
 
-    // MediaPipeでレンズ位置検出
-    const detectionResult = await detectLenses(tempVideo, canvas.width, canvas.height);
-    
-    // Video要素をクリーンアップ
-    tempVideo.srcObject = null;
-    
-    if (!detectionResult) {
-      console.log('⚠️ MediaPipe検出失敗 - フォールバックを実行');
+      // FormData作成
+      const formData = new FormData();
+      formData.append('file', blob, 'lens-detection.jpg');
+
+      // 直接API呼び出し (Vercel制限回避)
+      const response = await fetch('https://glasses-color-app.onrender.com/detect-lens', {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!response.ok) {
+        throw new Error(`API Error: ${response.status}`);
+      }
+
+      const result = await response.json();
+      
+      if (result.success && result.detection_result?.lenses) {
+        console.log('✅ 直接API成功:', result);
+        console.log('📏 信頼度:', result.detection_result?.confidence || 'N/A');
+        
+        // 高精度レンズ適用
+        applyHighPrecisionLenses(ctx, canvas, result.detection_result.lenses, result.image_info?.size, r, g, b, intensity);
+        return;
+      }
+      
       throw new Error('レンズ検出失敗');
-    }
-
-    console.log('✅ MediaPipe静止画検出成功:', detectionResult);
-    console.log('📏 IPD:', detectionResult.ipd.toFixed(1) + 'px');
-    console.log('🎯 信頼度:', (detectionResult.confidence * 100).toFixed(1) + '%');
-
-    // 検出されたレンズ領域にカラー適用
-    applyColorToLenses(ctx, canvas, detectionResult, r, g, b, intensity);
-    return;
 
     } catch (error) {
-        console.log('🔄 MediaPipe検出失敗、フォールバック実行:', error);
-        
-        // フォールバック: 従来の顔全体適用（UIは変わらず動作継続）
-        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        const data = imageData.data;
+      console.log('🔄 Fallback execution:', error);
+      
+      // フォールバック: 従来の顔全体適用
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = imageData.data;
 
-        for (let i = 0; i < data.length; i += 4) {
-          data[i] = Math.min(255, data[i] * (1 - intensity) + r * intensity);
-          data[i + 1] = Math.min(255, data[i + 1] * (1 - intensity) + g * intensity);
-          data[i + 2] = Math.min(255, data[i + 2] * (1 - intensity) + b * intensity);
-        }
-
-        ctx.putImageData(imageData, 0, 0);
+      for (let i = 0; i < data.length; i += 4) {
+        data[i] = Math.min(255, data[i] * (1 - intensity) + r * intensity);
+        data[i + 1] = Math.min(255, data[i + 1] * (1 - intensity) + g * intensity);
+        data[i + 2] = Math.min(255, data[i + 2] * (1 - intensity) + b * intensity);
       }
-    }, [selectedColor, selectedIntensity, activeTab, isInitialized, detectLenses]);
+
+      ctx.putImageData(imageData, 0, 0);
+    }
+  }, [selectedColor, selectedIntensity, activeTab]);
+
+  //  高精度レンズ適用関数
+  const applyHighPrecisionLenses = (ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, lenses: any, apiImageSize: any, r: number, g: number, b: number, intensity: number) => {
+    console.log('🎯 高精度レンズ適用開始');
+    
+    let leftLens, rightLens;
+    
+    if (apiImageSize) {
+      const scaleX = canvas.width / apiImageSize.width;
+      const scaleY = canvas.height / apiImageSize.height;
+      
+      leftLens = {
+        x: lenses.left.x * scaleX,
+        y: lenses.left.y * scaleY,
+        width: lenses.left.width * scaleX,
+        height: lenses.left.height * scaleY
+      };
+      
+      rightLens = {
+        x: lenses.right.x * scaleX,
+        y: lenses.right.y * scaleY,
+        width: lenses.right.width * scaleX,
+        height: lenses.right.height * scaleY
+      };
+    } else {
+      leftLens = lenses.left;
+      rightLens = lenses.right;
+    }
+    
+    // 精密レンズ描画
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imageData.data;
+    
+    [leftLens, rightLens].forEach(lens => {
+      for (let y = Math.max(0, Math.round(lens.y)); y < Math.min(canvas.height, Math.round(lens.y + lens.height)); y++) {
+        for (let x = Math.max(0, Math.round(lens.x)); x < Math.min(canvas.width, Math.round(lens.x + lens.width)); x++) {
+          // 楕円マスク
+          const centerX = lens.x + lens.width / 2;
+          const centerY = lens.y + lens.height / 2;
+          const dx = (x - centerX) / (lens.width / 2);
+          const dy = (y - centerY) / (lens.height / 2);
+          
+          if (dx * dx + dy * dy <= 1) {
+            const pixelIndex = (y * canvas.width + x) * 4;
+            data[pixelIndex] = Math.round(data[pixelIndex] * (1 - intensity) + r * intensity);
+            data[pixelIndex + 1] = Math.round(data[pixelIndex + 1] * (1 - intensity) + g * intensity);
+            data[pixelIndex + 2] = Math.round(data[pixelIndex + 2] * (1 - intensity) + b * intensity);
+          }
+        }
+      }
+    });
+    
+    ctx.putImageData(imageData, 0, 0);
+    console.log('✅ 高精度レンズ適用完了');
+  };
+
+  // レンズ領域のみにカラーを適用する関数（既存）
 
 
   // レンズ領域のみにカラーを適用する関数
