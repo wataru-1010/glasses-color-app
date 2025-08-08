@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useFaceMesh } from '../hooks/useFaceMesh'; 
 
 // カラーデータの定義
 const colorData = {
@@ -46,6 +47,9 @@ const intensityOptions = {
 function TryOnPage() {
   const navigate = useNavigate();
   const location = useLocation();
+  
+  // MediaPipe Hook
+  const { isInitialized, isLoading, error, detectLenses } = useFaceMesh();
   
   // States
   const [activeTab, setActiveTab] = useState<'fullColor' | 'gradation' | 'double'>('fullColor');
@@ -95,43 +99,47 @@ function TryOnPage() {
     const b = parseInt(hex.substr(4, 2), 16);
 
     try {
-      console.log('🎯 Proxy API call via Vercel (FormData Fixed)');
-      
-      // Canvas画像をBlobに変換
-      const blob = await new Promise<Blob>((resolve) => {
-        canvas.toBlob((blob) => {
-          if (blob) resolve(blob);
-        }, 'image/jpeg', 0.8);
-      });
+      console.log('🎯 MediaPipe Face Mesh で静止画検出開始');
 
-      if (!blob) throw new Error('画像変換失敗');
-
-      // FormData作成
-      const formData = new FormData();
-      formData.append('file', blob, 'lens-detection.jpg');
-
-      // プロキシ経由の呼び出し (FormData + CORS両方解決)
-      const response = await fetch('/api/proxy?' + new URLSearchParams({ path: 'detect-lens' }), {
-        method: 'POST',
-        body: formData
-      });
-
-      if (!response.ok) {
-        throw new Error(`API Error: ${response.status}`);
+      // MediaPipe初期化チェック
+      if (!isInitialized) {
+        console.log('⚠️ MediaPipe未初期化 - フォールバックを実行');
+        throw new Error('MediaPipe未初期化');
       }
 
-      const result = await response.json();
-      
-      if (result.success && result.detection_result?.lenses) {
-        console.log('✅ 直接API成功:', result);
-        console.log('📏 信頼度:', result.detection_result?.confidence || 'N/A');
-        
-        // 高精度レンズ適用
-        applyHighPrecisionLenses(ctx, canvas, result.detection_result.lenses, result.image_info?.size, r, g, b, intensity);
-        return;
+      // 静止画用のVideo要素を一時作成
+      const tempVideo = document.createElement('video');
+      tempVideo.width = canvas.width;
+      tempVideo.height = canvas.height;
+
+      // CanvasからVideoに変換（MediaPipe用）
+      const stream = canvas.captureStream();
+      tempVideo.srcObject = stream;
+      tempVideo.play();
+
+      // Videoがreadyになるまで待機
+      await new Promise((resolve) => {
+        tempVideo.onloadeddata = resolve;
+      });
+
+      // MediaPipeでレンズ位置検出（改良版使用）
+      const detectionResult = await detectLenses(tempVideo, canvas.width, canvas.height);
+
+      // Video要素をクリーンアップ
+      tempVideo.srcObject = null;
+
+      if (!detectionResult) {
+        console.log('⚠️ MediaPipe検出失敗 - フォールバックを実行');
+        throw new Error('レンズ検出失敗');
       }
-      
-      throw new Error('レンズ検出失敗');
+
+      console.log('✅ MediaPipe静止画検出成功:', detectionResult);
+      console.log('📏 IPD:', detectionResult.ipd.toFixed(1) + 'px');
+      console.log('🎯 信頼度:', (detectionResult.confidence * 100).toFixed(1) + '%');
+
+      // 検出されたレンズ領域にカラー適用
+      applyColorToLenses(ctx, canvas, detectionResult, r, g, b, intensity);
+      return;
 
     } catch (error) {
       console.log('🔄 Fallback execution:', error);
@@ -148,7 +156,9 @@ function TryOnPage() {
 
       ctx.putImageData(imageData, 0, 0);
     }
-  }, [selectedColor, selectedIntensity, activeTab]);
+
+
+  }, [selectedColor, selectedIntensity, activeTab, isInitialized, detectLenses]);
 
   //  高精度レンズ適用関数
   const applyHighPrecisionLenses = (ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, lenses: any, apiImageSize: any, r: number, g: number, b: number, intensity: number) => {
@@ -204,9 +214,6 @@ function TryOnPage() {
     ctx.putImageData(imageData, 0, 0);
     console.log('✅ 高精度レンズ適用完了');
   };
-
-  // レンズ領域のみにカラーを適用する関数（既存）
-
 
   // レンズ領域のみにカラーを適用する関数
   const applyColorToLenses = (ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, lenses: any, r: number, g: number, b: number, intensity: number) => {

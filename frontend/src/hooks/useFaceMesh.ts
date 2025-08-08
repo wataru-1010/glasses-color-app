@@ -1,238 +1,261 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { FaceLandmarker, FilesetResolver } from '@mediapipe/tasks-vision';
+import { useCallback, useEffect, useState } from 'react';
 
-interface LensPosition {
+// MediaPipe Face Mesh関連の型定義
+interface FaceLandmark {
   x: number;
   y: number;
-  width: number;
-  height: number;
+  z?: number;
+}
+
+interface FaceMeshResult {
+  faceLandmarks: FaceLandmark[][];
 }
 
 interface LensDetectionResult {
-  left: LensPosition;
-  right: LensPosition;
+  left: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+  right: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+  ipd: number;
   confidence: number;
-  ipd: number; // 瞳孔間距離
 }
 
-interface UseFaceMeshReturn {
-  isInitialized: boolean;
-  isLoading: boolean;
-  error: string | null;
-  detectLenses: (videoElement: HTMLVideoElement, canvasWidth: number, canvasHeight: number) => Promise<LensDetectionResult | null>;
-  initializeFaceMesh: () => Promise<void>;
-}
-
-export const useFaceMesh = (): UseFaceMeshReturn => {
+// MediaPipe Face Mesh Hook
+export const useFaceMesh = () => {
   const [isInitialized, setIsInitialized] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const faceLandmarkerRef = useRef<FaceLandmarker | null>(null);
+  const [faceMesh, setFaceMesh] = useState<any>(null);
 
-  // MediaPipe Face Mesh初期化
-  const initializeFaceMesh = useCallback(async () => {
-    if (isInitialized || isLoading) return;
-
-    try {
-      setIsLoading(true);
-      setError(null);
-      console.log('🚀 MediaPipe Face Mesh初期化開始...');
-
-      // FilesetResolverでWASMファイルを設定
-      const filesetResolver = await FilesetResolver.forVisionTasks(
-        'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.8/wasm'
-      );
-
-      // FaceLandmarker作成
-      const faceLandmarker = await FaceLandmarker.createFromOptions(filesetResolver, {
-        baseOptions: {
-          modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
-          delegate: 'GPU' // GPU使用で高速化
-        },
-        outputFaceBlendshapes: false,
-        outputFacialTransformationMatrixes: false,
-        runningMode: 'VIDEO', // ビデオモード
-        numFaces: 1 // 1人の顔のみ検出
-      });
-
-      faceLandmarkerRef.current = faceLandmarker;
-      setIsInitialized(true);
-      console.log('✅ MediaPipe Face Mesh初期化完了');
-
-    } catch (err) {
-      console.error('❌ MediaPipe初期化エラー:', err);
-      setError(`初期化エラー: ${err instanceof Error ? err.message : String(err)}`);
-      
-      // フォールバック: CPU版で再試行
+  // MediaPipe初期化
+  useEffect(() => {
+    const initializeMediaPipe = async () => {
       try {
-        console.log('🔄 CPU版で再試行...');
+        console.log('🚀 MediaPipe Face Mesh初期化開始...');
+        setIsLoading(true);
+        setError(null);
+
+        // @mediapipe/tasks-visionを動的インポート
+        const { FaceLandmarker, FilesetResolver } = await import('@mediapipe/tasks-vision');
+        
+        console.log('📦 MediaPipeモジュール読み込み成功');
+
+        // MediaPipe WASM files の設定
         const filesetResolver = await FilesetResolver.forVisionTasks(
-          'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.8/wasm'
+          'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm'
         );
 
+        // Face Landmarker の初期化
         const faceLandmarker = await FaceLandmarker.createFromOptions(filesetResolver, {
           baseOptions: {
             modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
-            delegate: 'CPU' // CPU版にフォールバック
+            delegate: 'GPU'
           },
           outputFaceBlendshapes: false,
-          outputFacialTransformationMatrixes: false,
-          runningMode: 'VIDEO',
-          numFaces: 1
+          outputFacialTransformationMatrices: false,
+          numFaces: 1,
+          minFaceDetectionConfidence: 0.7,
+          minFacePresenceConfidence: 0.7,
+          minTrackingConfidence: 0.7
         });
 
-        faceLandmarkerRef.current = faceLandmarker;
+        console.log('✅ MediaPipe Face Mesh初期化完了');
+        setFaceMesh(faceLandmarker);
         setIsInitialized(true);
-        setError(null);
-        console.log('✅ CPU版で初期化成功');
 
-      } catch (fallbackErr) {
-        console.error('❌ CPU版でも失敗:', fallbackErr);
-        setError('MediaPipe初期化に失敗しました。ブラウザを更新してください。');
+      } catch (err) {
+        console.error('❌ MediaPipe初期化エラー:', err);
+        setError(`MediaPipe初期化失敗: ${err instanceof Error ? err.message : '不明なエラー'}`);
+      } finally {
+        setIsLoading(false);
       }
-    } finally {
-      setIsLoading(false);
-    }
-  }, [isInitialized, isLoading]);
+    };
 
-  // レンズ位置検出メイン関数
+    initializeMediaPipe();
+  }, []);
+
+  // レンズ検出関数（改良版）
   const detectLenses = useCallback(async (
     videoElement: HTMLVideoElement,
     canvasWidth: number,
     canvasHeight: number
   ): Promise<LensDetectionResult | null> => {
-    if (!faceLandmarkerRef.current || !isInitialized) {
+    if (!isInitialized || !faceMesh) {
       console.log('⚠️ MediaPipe未初期化');
       return null;
     }
 
     try {
-      // 現在時刻を取得（MediaPipe要件）
-      const timestamp = performance.now();
+      console.log('🎯 高精度Face Mesh検出開始');
       
-      // 顔ランドマーク検出実行
-      const results = faceLandmarkerRef.current.detectForVideo(videoElement, timestamp);
+      // MediaPipeで顔ランドマーク検出
+      const faceMeshResults = faceMesh.detect(videoElement);
       
-      if (!results.faceLandmarks || results.faceLandmarks.length === 0) {
+      if (!faceMeshResults.faceLandmarks || faceMeshResults.faceLandmarks.length === 0) {
         console.log('⚠️ 顔が検出されませんでした');
         return null;
       }
 
-      const landmarks = results.faceLandmarks[0];
+      const landmarks = faceMeshResults.faceLandmarks[0];
       console.log(`✅ 顔検出成功: ${landmarks.length}個のランドマーク`);
 
-      // 重要な目のランドマーク（MediaPipe 468点モデル）
-      const leftEyePoints = [
-        landmarks[33],  // 左目外側
-        landmarks[7],   // 左目上部
-        landmarks[163], // 左目内側
-        landmarks[144], // 左目下部
-        landmarks[145], // 左目下部2
-        landmarks[153], // 左目下部3
-        landmarks[154], // 左目上部2
-        landmarks[155], // 左目上部3
-        landmarks[133]  // 左目外側2
-      ];
+      // 重要なランドマークポイント（MediaPipe 468点モデル）
+      const leftEyeCenter = landmarks[159];   // 左目中央
+      const rightEyeCenter = landmarks[386];  // 右目中央
+      const leftEyeInner = landmarks[133];    // 左目内側
+      const rightEyeInner = landmarks[362];   // 右目内側
+      const leftEyeOuter = landmarks[33];     // 左目外側
+      const rightEyeOuter = landmarks[263];   // 右目外側
+      const leftEyeTop = landmarks[159];      // 左目上部
+      const leftEyeBottom = landmarks[145];   // 左目下部
+      const rightEyeTop = landmarks[386];     // 右目上部
+      const rightEyeBottom = landmarks[374];  // 右目下部
 
-      const rightEyePoints = [
-        landmarks[362], // 右目外側
-        landmarks[382], // 右目上部
-        landmarks[381], // 右目上部2
-        landmarks[380], // 右目上部3
-        landmarks[374], // 右目下部
-        landmarks[373], // 右目下部2
-        landmarks[390], // 右目内側
-        landmarks[249], // 右目下部3
-        landmarks[263]  // 右目外側2
-      ];
+      // IPD（瞳孔間距離）計算
+      const ipdNormalized = Math.sqrt(
+        Math.pow(rightEyeCenter.x - leftEyeCenter.x, 2) +
+        Math.pow(rightEyeCenter.y - leftEyeCenter.y, 2)
+      );
+      const ipd = ipdNormalized * canvasWidth;
 
-      // 目の境界計算
-      const getEyeBounds = (eyePoints: any[]) => {
-        const xs = eyePoints.map(p => p.x * canvasWidth);
-        const ys = eyePoints.map(p => p.y * canvasHeight);
-        
-        return {
-          minX: Math.min(...xs),
-          maxX: Math.max(...xs),
-          minY: Math.min(...ys),
-          maxY: Math.max(...ys)
-        };
-      };
+      console.log(`📏 IPD: ${ipd.toFixed(1)}px`);
 
-      const leftBounds = getEyeBounds(leftEyePoints);
-      const rightBounds = getEyeBounds(rightEyePoints);
-
-      // IPD計算（瞳孔間距離）
-      const leftPupil = landmarks[468] || landmarks[33]; // 左瞳孔位置
-      const rightPupil = landmarks[473] || landmarks[263]; // 右瞳孔位置
-      const ipd = Math.sqrt(
-        Math.pow((rightPupil.x - leftPupil.x) * canvasWidth, 2) +
-        Math.pow((rightPupil.y - leftPupil.y) * canvasHeight, 2)
+      // 🆕 改良されたレンズ位置・サイズ計算
+      const glassesConfig = calculateOptimalGlassesParams(ipd, canvasWidth, canvasHeight);
+      
+      // 左レンズ計算（改良版）
+      const leftLens = calculateImprovedLensPosition(
+        leftEyeCenter, leftEyeInner, leftEyeOuter, leftEyeTop, leftEyeBottom,
+        glassesConfig, canvasWidth, canvasHeight, 'left'
       );
 
-      // レンズサイズ計算（IPDベース + マージン）
-      const lensWidth = Math.max(ipd * 0.52, Math.abs(leftBounds.maxX - leftBounds.minX) * 1.1);
-      const lensHeight = lensWidth * 0.6; // 一般的なレンズ比率
+      // 右レンズ計算（改良版）
+      const rightLens = calculateImprovedLensPosition(
+        rightEyeCenter, rightEyeInner, rightEyeOuter, rightEyeTop, rightEyeBottom,
+        glassesConfig, canvasWidth, canvasHeight, 'right'
+      );
 
-      // レンズ中心位置計算
-      const leftCenter = {
-        x: (leftBounds.minX + leftBounds.maxX) / 2,
-        y: (leftBounds.minY + leftBounds.maxY) / 2
-      };
+      // 信頼度計算（改良版）
+      const confidence = calculateImprovedConfidence(landmarks, ipd);
 
-      const rightCenter = {
-        x: (rightBounds.minX + rightBounds.maxX) / 2,
-        y: (rightBounds.minY + rightBounds.maxY) / 2
-      };
-
-      // 最終レンズ位置
-      const leftLens: LensPosition = {
-        x: leftCenter.x - lensWidth / 2,
-        y: leftCenter.y - lensHeight / 2,
-        width: lensWidth,
-        height: lensHeight
-      };
-
-      const rightLens: LensPosition = {
-        x: rightCenter.x - lensWidth / 2,
-        y: rightCenter.y - lensHeight / 2,
-        width: lensWidth,
-        height: lensHeight
-      };
-
-      const confidence = 0.85; // MediaPipeの信頼度は高め
-
-      console.log('👓 レンズ検出結果:', {
-        left: leftLens,
-        right: rightLens,
-        ipd: ipd.toFixed(1),
-        confidence
-      });
+      console.log(`🎯 信頼度: ${(confidence * 100).toFixed(1)}%`);
+      console.log('👓 改良レンズ位置:', { leftLens, rightLens });
 
       return {
         left: leftLens,
         right: rightLens,
-        confidence,
-        ipd
+        ipd,
+        confidence
       };
 
-    } catch (err) {
-      console.error('❌ レンズ検出エラー:', err);
-      setError(`検出エラー: ${err instanceof Error ? err.message : String(err)}`);
+    } catch (error) {
+      console.error('❌ レンズ検出エラー:', error);
       return null;
     }
-  }, [isInitialized]);
-
-  // 初期化時にMediaPipeを自動読み込み
-  useEffect(() => {
-    initializeFaceMesh();
-  }, [initializeFaceMesh]);
+  }, [isInitialized, faceMesh]);
 
   return {
     isInitialized,
     isLoading,
     error,
-    detectLenses,
-    initializeFaceMesh
+    detectLenses
   };
 };
+
+// 🆕 最適なメガネパラメータ計算
+function calculateOptimalGlassesParams(ipd: number, canvasWidth: number, canvasHeight: number) {
+  // IPDベースのレンズサイズ計算（実際のメガネの比率）
+  const lensWidth = ipd * 0.65;  // IPDの65%（実測値ベース）
+  const lensHeight = lensWidth * 0.75;  // 4:3比率（一般的なメガネ）
+  
+  // 垂直オフセット（目の位置からレンズ中央への調整）
+  const verticalOffset = -lensHeight * 0.15; // レンズの15%上に調整
+  
+  // マージン（より自然な見た目）
+  const horizontalMargin = lensWidth * 0.1;
+  const verticalMargin = lensHeight * 0.1;
+
+  return {
+    lensWidth: lensWidth + horizontalMargin,
+    lensHeight: lensHeight + verticalMargin,
+    verticalOffset,
+    aspectRatio: 0.75
+  };
+}
+
+// 🆕 改良されたレンズ位置計算
+function calculateImprovedLensPosition(
+  eyeCenter: FaceLandmark,
+  eyeInner: FaceLandmark,
+  eyeOuter: FaceLandmark,
+  eyeTop: FaceLandmark,
+  eyeBottom: FaceLandmark,
+  config: any,
+  canvasWidth: number,
+  canvasHeight: number,
+  side: 'left' | 'right'
+) {
+  // 目のサイズを詳細計算
+  const eyeWidth = Math.abs(eyeOuter.x - eyeInner.x) * canvasWidth;
+  const eyeHeight = Math.abs(eyeTop.y - eyeBottom.y) * canvasHeight;
+  
+  // レンズ中央位置（垂直オフセット適用）
+  const centerX = eyeCenter.x * canvasWidth;
+  const centerY = (eyeCenter.y * canvasHeight) + config.verticalOffset;
+  
+  // レンズサイズ（目のサイズとIPDベース計算の最適化）
+  const lensWidth = Math.max(config.lensWidth, eyeWidth * 1.3);
+  const lensHeight = Math.max(config.lensHeight, eyeHeight * 1.5);
+  
+  // レンズ左上角の位置
+  const x = centerX - (lensWidth / 2);
+  const y = centerY - (lensHeight / 2);
+
+  console.log(`👁️ ${side}目 - 実測: ${eyeWidth.toFixed(1)}x${eyeHeight.toFixed(1)}`);
+  console.log(`🔍 ${side}レンズ - 最終: ${lensWidth.toFixed(1)}x${lensHeight.toFixed(1)}`);
+
+  return {
+    x: Math.max(0, x),
+    y: Math.max(0, y),
+    width: Math.min(lensWidth, canvasWidth - x),
+    height: Math.min(lensHeight, canvasHeight - y)
+  };
+}
+
+// 🆕 改良された信頼度計算
+function calculateImprovedConfidence(landmarks: FaceLandmark[], ipd: number): number {
+  // 基本信頼度
+  let confidence = 0.8;
+  
+  // IPDが適切範囲内かチェック（50-80px が一般的）
+  if (ipd >= 50 && ipd <= 80) {
+    confidence += 0.1;
+  } else {
+    confidence -= 0.2;
+  }
+  
+  // 顔の向きチェック（正面度）
+  const leftEye = landmarks[159];
+  const rightEye = landmarks[386];
+  const noseTip = landmarks[1];
+  
+  // 鼻の位置が両目の中央に近いかチェック
+  const eyeCenterX = (leftEye.x + rightEye.x) / 2;
+  const noseDeviation = Math.abs(noseTip.x - eyeCenterX);
+  
+  if (noseDeviation < 0.05) {  // 正面向き
+    confidence += 0.1;
+  } else if (noseDeviation > 0.15) {  // 横向きすぎ
+    confidence -= 0.3;
+  }
+  
+  return Math.max(0.1, Math.min(1.0, confidence));
+}
