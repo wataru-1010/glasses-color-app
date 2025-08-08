@@ -1,14 +1,7 @@
-import formidable from 'formidable';
-
-export const config = {
-  api: {
-    bodyParser: false, // FormDataを手動で処理
-  },
-};
-
 export default async function handler(req, res) {
-  console.log('🔧 Proxy request:', req.method, req.url);
+  console.log('🔧 Simple Proxy request:', req.method, req.url);
   
+  // CORS設定
   const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
@@ -32,60 +25,25 @@ export default async function handler(req, res) {
     
     console.log('🎯 Proxying to:', targetUrl);
 
-    let requestBody;
-
-    if (req.method === 'POST') {
-      // FormDataを正しく解析
-      const form = formidable({
-        maxFileSize: 10 * 1024 * 1024, // 10MB
-        keepExtensions: true,
-      });
-
-      try {
-        const [fields, files] = await form.parse(req);
-        console.log('📦 Parsed FormData:', { fields: Object.keys(fields), files: Object.keys(files) });
-
-        // 新しいFormDataを作成
-        const formData = new FormData();
-        
-        // フィールドを追加
-        for (const [key, value] of Object.entries(fields)) {
-          if (Array.isArray(value)) {
-            formData.append(key, value[0]);
-          } else {
-            formData.append(key, value);
-          }
-        }
-
-        // ファイルを追加
-        for (const [key, fileArray] of Object.entries(files)) {
-          const file = Array.isArray(fileArray) ? fileArray[0] : fileArray;
-          if (file) {
-            const fileBuffer = await fetch(`file://${file.filepath}`).then(res => res.arrayBuffer());
-            const blob = new Blob([fileBuffer], { type: file.mimetype });
-            formData.append(key, blob, file.originalFilename || 'file');
-            console.log('📎 File added:', file.originalFilename, file.mimetype, file.size);
-          }
-        }
-
-        requestBody = formData;
-      } catch (parseError) {
-        console.error('❌ FormData parse error:', parseError);
-        return res.status(400).json({
-          success: false,
-          error: 'FormData parsing failed',
-          details: parseError.message
-        });
-      }
+    // リクエストボディをそのまま転送
+    const forwardHeaders = {};
+    
+    // 必要なヘッダーのみをコピー
+    if (req.headers['content-type']) {
+      forwardHeaders['content-type'] = req.headers['content-type'];
+    }
+    if (req.headers['content-length']) {
+      forwardHeaders['content-length'] = req.headers['content-length'];
     }
 
-    console.log('📦 Forwarding request with proper FormData...');
+    console.log('📦 Forward headers:', forwardHeaders);
+    console.log('📦 Request body type:', typeof req.body);
 
     // リクエスト送信
     const apiResponse = await fetch(targetUrl, {
       method: req.method,
-      body: requestBody,
-      // FormDataの場合、Content-Typeは自動設定される
+      headers: forwardHeaders,
+      body: req.method === 'POST' ? req.body : undefined,
     });
 
     console.log('📥 API Response status:', apiResponse.status);
