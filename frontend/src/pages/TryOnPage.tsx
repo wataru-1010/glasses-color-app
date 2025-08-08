@@ -95,7 +95,7 @@ function TryOnPage() {
     const b = parseInt(hex.substr(4, 2), 16);
 
     try {
-      console.log('🎯 Direct API call to Render (30min Challenge)');
+      console.log('🎯 Proxy API call via Vercel (FormData Fixed)');
       
       // Canvas画像をBlobに変換
       const blob = await new Promise<Blob>((resolve) => {
@@ -110,8 +110,8 @@ function TryOnPage() {
       const formData = new FormData();
       formData.append('file', blob, 'lens-detection.jpg');
 
-      // 直接API呼び出し (Vercel制限回避)
-      const response = await fetch('https://glasses-color-app.onrender.com/detect-lens', {
+      // プロキシ経由の呼び出し (FormData + CORS両方解決)
+      const response = await fetch('/api/proxy?' + new URLSearchParams({ path: 'detect-lens' }), {
         method: 'POST',
         body: formData
       });
