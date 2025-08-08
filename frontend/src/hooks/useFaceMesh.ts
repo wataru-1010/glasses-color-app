@@ -60,7 +60,7 @@ export const useFaceMesh = () => {
             delegate: 'GPU'
           },
           outputFaceBlendshapes: false,
-          outputFacialTransformationMatrices: false,
+          outputFacialTransformationMatrixes: false,
           numFaces: 1,
           minFaceDetectionConfidence: 0.7,
           minFacePresenceConfidence: 0.7,
